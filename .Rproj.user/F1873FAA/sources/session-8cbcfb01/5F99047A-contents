@@ -1,0 +1,1024 @@
+# Part I. PACKAGES ----
+library(dplyr)
+library(devtools)
+devtools::install_github("RondNath/SKR.TAD") # available from https://github.com/RondNath/SKR.TAD
+library(future.apply)
+library(progressr)
+library(ggplot2)
+library(PearsonDS)
+library(ggpubr)
+library(parallel)
+library(doParallel)
+
+# Part II. Import Data ----
+AB <- read.csv("./Input_Data/abundance_exp.csv", 
+               sep = ";", 
+               dec = ".", 
+               check.names = F)
+
+Trait <- log(read.csv("./Input_Data/trait_exp.csv", 
+                  sep = ";", 
+                  dec = ".", 
+                  check.names = F) %>% 
+  dplyr::select(SLA)) # log transform SLA values
+
+# Part III. Species deletion and TADs analysis ----
+## I. Species deletion ----
+### A. Rank species ----
+Ranking <- AB %>% pivot_longer(!Plot & !Year & !Bloc & !Treatment, names_to = "Species", values_to = "Abundance") %>% 
+  filter(Abundance > 0) %>% 
+  group_by(Plot, Bloc, Treatment, Year) %>%
+  mutate(Ranking = rank(-Abundance, ties.method = "random"))
+
+write.table(Ranking,
+            "./Output_Data/Species_Ranking_exp.csv",
+            sep = ";",
+            dec = ".",
+            row.names = F)
+
+### B. Delete species (until it remains 2 species) ----
+#### 1. Remove species from least to most abundant ----
+DelRare <- data.frame()
+for (i in unique(Ranking$Year)){
+  for (j in unique(Ranking$Plot)){
+    Plot_Year <-  Ranking %>% filter(Year == i, Plot == j)
+    INI <- Plot_Year %>% mutate(Cum_Spe = length(Ranking), Tot_Spe = length(Ranking), Delete_Spe = Tot_Spe - Cum_Spe)
+    NEW <- INI
+    while(length(NEW$Ranking) > 2) {
+      NEW <- NEW %>% filter(Ranking < max(Ranking)) %>% mutate(Cum_Spe = length(Ranking), 
+                                                               Delete_Spe = Tot_Spe - Cum_Spe)
+      INI <- rbind(INI, NEW)
+    }
+    DelRare <- rbind(DelRare, INI)
+  }
+}
+
+DelRare <- rbind(DelRare,
+                 AB[1,] %>% mutate(Plot = 0, Year = 0, Treatment = "test", Bloc = 0) %>% 
+                   pivot_longer(!Plot & !Year & !Treatment & !Bloc, 
+                                names_to = "Species", 
+                                values_to = "Abundance") %>% 
+                   mutate(Abundance = 0,
+                          Delete_Spe = 0,
+                          Ranking = 0,
+                          Cum_Spe = 0,
+                          Tot_Spe = 0))
+
+DelRare <- DelRare %>%
+  transform(Species = str_replace(Species,"SP","")) %>%
+  mutate(Species = as.numeric(Species)) %>% 
+  arrange(Species) %>% 
+  mutate(Species = paste0("SP", Species))
+
+DelRare <- DelRare %>% 
+  dplyr::select(-Ranking) %>% 
+  pivot_wider(names_from = Species, values_from = Abundance)
+
+DelRare <- mutate_all(DelRare, ~replace(., is.na(.), 0)) %>% filter (Plot > 0)
+
+write.table(DelRare,
+            "./Output_Data/DelRare_exp.csv",
+            sep = ";",
+            dec = ".",
+            row.names = F)
+
+#### 2. Remove species from most to least abundant ----
+DelCom <- data.frame()
+for (i in unique(Ranking$Year)){
+  for (j in unique(Ranking$Plot)){
+    Plot_Year <-  Ranking %>% filter(Year == i, Plot == j)
+    INI <- Plot_Year %>% mutate(Cum_Spe = length(Ranking), Tot_Spe = length(Ranking), Delete_Spe = Tot_Spe - Cum_Spe)
+    NEW <- INI
+    while(length(NEW$Ranking) > 2) {
+      NEW <- NEW %>% filter(Ranking > min(Ranking)) %>% mutate(Cum_Spe = length(Ranking), 
+                                                               Delete_Spe = Tot_Spe - Cum_Spe)
+      INI <- rbind(INI, NEW)
+    }
+    DelCom <- rbind(DelCom, INI)
+  }
+}
+
+DelCom <- rbind(DelCom,
+                AB[1,] %>% mutate(Plot = 0, Year = 0, Treatment = "test", Bloc = 0) %>% 
+                  pivot_longer(!Plot & !Year & !Treatment & !Bloc, 
+                               names_to = "Species", 
+                               values_to = "Abundance") %>% 
+                  mutate(Abundance = 0,
+                         Delete_Spe = 0,
+                         Ranking = 0,
+                         Cum_Spe = 0,
+                         Tot_Spe = 0))
+
+DelCom <- DelCom %>%
+  transform(Species = str_replace(Species,"SP","")) %>%
+  mutate(Species = as.numeric(Species)) %>% 
+  arrange(Species) %>% 
+  mutate(Species = paste0("SP", Species))
+
+DelCom <- DelCom %>% 
+  dplyr::select(-Ranking) %>% 
+  pivot_wider(names_from = Species, values_from = Abundance)
+
+DelCom <- mutate_all(DelCom, ~replace(., is.na(.), 0)) %>% filter (Plot > 0)
+
+write.table(DelCom,
+            "./Output_Data/DelCom_exp.csv",
+            sep = ";",
+            dec = ".",
+            row.names = F)
+
+## II. Compute Moments ----
+### A. Function ----
+CalculusCW<-function(Ab,Trait){
+  #Remember: j is site; sp is specie
+  #Allocate memory
+  CWM<-numeric(dim(Ab)[1])
+  CWV<-CWM
+  CWSk<-CWM
+  CWK<-CWM
+  
+  for (j in 1:dim(Ab)[1]) {
+    #Calculate CWM
+    CWM[j] <- sum((Trait)*(Ab[j,]/sum(Ab[j,])))
+    #Calculate CWV
+    CWV[j]<-sum(((Trait-CWM[j])^2)*(Ab[j,]/sum(Ab[j,])))
+    #Calculate CWSk
+    CWSk[j]<-sum((((Trait-CWM[j])^3)/(CWV[j])^(3/2))*(Ab[j,]/sum(Ab[j,])))
+    #Calculate CWK
+    CWK[j]<-sum((((Trait-CWM[j])^4)/(CWV[j])^(2))*(Ab[j,]/sum(Ab[j,])))
+  }
+  return(list(CWM,CWV,CWSk,CWK))
+}
+
+### B. for species removed from least to most abundant ----
+Ab <- read.csv("./Output_Data/DelRare_exp.csv",
+               sep = ";",
+               dec = ".") %>% 
+  dplyr::select(-Plot, -Year, -Bloc, -Treatment, -Delete_Spe, -Cum_Spe, -Tot_Spe)
+
+ID <- read.csv("./Output_Data/DelRare_exp.csv",
+               sep = ";",
+               dec = ".") %>% 
+  dplyr::select(Plot, Year, Bloc, Treatment, Delete_Spe, Cum_Spe, Tot_Spe)
+
+Ab <- t(Ab)
+
+df <- data.frame(Ab, Trait)
+df <- na.omit(df) # remove NA
+trait <- df[,ncol(df)]
+Ab <- df[,-ncol(df)]
+Ab <- t(Ab)
+
+# Compute moments
+dataMOM <- CalculusCW(Ab,trait)
+
+MOMENTS <- data.frame(data.frame((dataMOM[[1]]),(dataMOM[[2]]),(dataMOM[[3]]),(dataMOM[[4]])))
+colnames(MOMENTS) <- c("mean", "variance", "skewness", "kurtosis")
+ID_MOMENTS <- data.frame(ID, MOMENTS)
+
+write.table(ID_MOMENTS,
+            "./Output_Data/MOMENTS_DelRare_exp.csv",
+            sep = ";",
+            dec = ".",
+            row.names = F)
+
+### C. for species removed from most to least abundant ----
+Ab <- read.csv("./Output_Data/DelCom_exp.csv",
+               sep = ";",
+               dec = ".") %>% 
+  dplyr::select(-Plot, -Year, -Bloc, -Treatment, -Delete_Spe, -Cum_Spe, -Tot_Spe)
+
+ID <- read.csv("./Output_Data/DelCom_exp.csv",
+               sep = ";",
+               dec = ".") %>% 
+  dplyr::select(Plot, Year, Bloc, Treatment, Delete_Spe, Cum_Spe, Tot_Spe)
+
+Ab <- t(Ab)
+df <- data.frame(Ab, Trait)
+df <- na.omit(df) # remove NA
+trait <- df[,ncol(df)]
+Ab <- df[,-ncol(df)]
+Ab <- t(Ab)
+
+# Compute moments
+dataMOM <- CalculusCW(Ab,trait)
+
+MOMENTS <- data.frame(data.frame((dataMOM[[1]]),(dataMOM[[2]]),(dataMOM[[3]]),(dataMOM[[4]])))
+colnames(MOMENTS) <- c("mean", "variance", "skewness", "kurtosis")
+ID_MOMENTS <- data.frame(ID, MOMENTS)
+
+write.table(ID_MOMENTS,
+            "./Output_Data/MOMENTS_DelCom_exp.csv",
+            sep = ";",
+            dec = ".",
+            row.names = F)
+
+## III. SKR parameters ----
+### A. Function ----
+SKRparam <- function(
+    Moments,
+    statisticsFactorName = NULL,
+    lin_mod = "lm",
+    slope_ref_TADs = 1,
+    intercept_ref_TADs = 1.86,
+    distance_metric = "RMSE",
+    workers = parallel::detectCores() - 1
+) {
+  
+  Moments <- Moments %>%
+    mutate(statisticsFactor = as.character(interaction(across(all_of(statisticsFactorName)), sep = "_")))
+  
+  SKR_output <- unique(Moments %>%
+                         select(all_of(statisticsFactorName)) %>%
+                         mutate(statisticsFactor = as.character(interaction(across(all_of(statisticsFactorName)), sep = "_"))))
+  
+  statsFactors <- unique(Moments$statisticsFactor)
+  
+  if (.Platform$OS.type == "windows") {
+    plan(multisession, workers = workers)
+  } else {
+    plan(multicore, workers = workers)
+  }
+  
+  results <- NULL
+  with_progress({
+    handlers("txtprogressbar")
+    p <- progressor(along = statsFactors)
+    
+    res_list <- future_lapply(statsFactors, function(i) {
+      p()  # progression
+      
+      Moments_filter <- Moments %>% filter(statisticsFactor == i)
+      y <- Moments_filter$kurtosis
+      x <- Moments_filter$skewness^2
+      distance_reference_TADs <- y - (slope_ref_TADs * x + intercept_ref_TADs)
+      
+      if (lin_mod == "lm") {
+        fit <- lm(y ~ x)
+      } else if (lin_mod == "mblm") {
+        fit <- mblm(y ~ x)
+      } else {
+        stop("Unknown lin_mod. Use 'lm' or 'mblm'.")
+      }
+      
+      # Calcul des distances selon métrique choisie
+      if (distance_metric == "RMSE") {
+        dist_pred <- sqrt(mean(fit$residuals^2, na.rm = TRUE))
+        dist_ref <- sqrt(mean(distance_reference_TADs^2, na.rm = TRUE))
+      } else if (distance_metric == "MAE") {
+        dist_pred <- mean(abs(fit$residuals), na.rm = TRUE)
+        dist_ref <- mean(abs(distance_reference_TADs), na.rm = TRUE)
+      } else {
+        stop("Unknown distance_metric. Use 'RMSE' or 'MAE'.")
+      }
+      
+      cv_ref <- sd(abs(distance_reference_TADs), na.rm = TRUE) * 100 / mean(abs(distance_reference_TADs), na.rm = TRUE)
+      
+      group_info <- SKR_output %>% filter(statisticsFactor == i) %>% slice(1)
+      
+      data.frame(
+        group_info[statisticsFactorName],
+        Slope = coef(fit)[2],
+        Intercept = coef(fit)[1],
+        Rsquare = 1 - (mean(stats::residuals(fit)^2, na.rm = TRUE) / var(y, na.rm = TRUE)),
+        distance_predicted_TADs = dist_pred,
+        distance_reference_TADs = dist_ref,
+        CV_distance_reference_TADs = cv_ref,
+        stringsAsFactors = FALSE
+      )
+    })
+    
+    results <- do.call(rbind, res_list)
+  })
+  
+  return(results)
+}
+
+### B. for species removed from least to most abundant ----
+write.table(
+  SKRparam(
+    Moments = read.csv("./Output_Data/MOMENTS_DelRare_exp.csv",
+                       sep = ";",
+                       dec = ".") %>% 
+      filter(Delete_Spe <= 15),
+    statisticsFactorName = c("Treatment", "Delete_Spe"),
+    lin_mod = "lm",
+    slope_ref_TADs = 1,
+    intercept_ref_TADs = 1.86,
+    distance_metric = "RMSE",
+    workers = parallel::detectCores() - 1
+  ),
+  "./Output_Data/SKRparam_DelRare_exp.csv",
+  sep = ";",
+  dec = ".",
+  row.names = F
+)
+
+### C. for species removed from most to least abundant ----
+write.table(
+  SKRparam(
+    Moments = read.csv("./Output_Data/MOMENTS_DelCom_exp.csv",
+                       sep = ";",
+                       dec = ".") %>% 
+      filter(Delete_Spe <=15),
+    statisticsFactorName = c("Treatment", "Delete_Spe"),
+    lin_mod = "lm",
+    slope_ref_TADs = 1,
+    intercept_ref_TADs = 1.86,
+    distance_metric = "RMSE",
+    workers = parallel::detectCores() - 1
+  ),
+  "./Output_Data/SKRparam_DelCom_exp.csv",
+  sep = ";",
+  dec = ".",
+  row.names = F)
+
+# Part IV. Null models (species deletion and TADs analysis), and statistics (SES observations vs. randomizations) ----
+## I. Randomized abundance (null models) ----
+AB_null <- SKR.TAD::AbundanceRandomization(
+  Abundance = AB[,5:114],
+  randomizationFactor =  AB[,c("Year", "Bloc")],
+  randomizationNumber = 1000,
+  seed = 666,
+  path_abundanceDataFrame = "./Output_Data/AB_ModelNull_exp.RDS",
+  doParallel = TRUE
+)
+
+colnames(AB_null) <- str_replace(colnames(AB_null), "Index", "SP")
+
+# Add ID information on randomized matrix
+ID <- data.frame()
+for (i in 0:1000){
+  ID <- rbind(ID, AB[, c("Plot", "Year", "Treatment")])
+}
+AB_null <- cbind(ID, AB_null)
+
+## II. Species deletion for random communities ----
+### A. Rank species for random communities ----
+Ranking_null <- AB_null %>% pivot_longer(!Plot & !Number & !Treatment & !Year, names_to = "Species", values_to = "Abundance") %>% 
+  filter(Abundance > 0) %>% 
+  group_by(Number, Plot, Year, Treatment) %>%
+  mutate(Ranking = rank(-Abundance, ties.method = "random"))
+
+saveRDS(Ranking_null, "./Output_Data/Species_Ranking_NullModel_exp.RDS")
+
+### B. Delete species ----
+#### 1. Remove species from least to most abundant ----
+DelRare_null <- Ranking_null %>% 
+  group_by(Plot, Year, Treatment, Number) %>% 
+  mutate(Cum_Spe = max(Ranking),
+         Tot_Spe = max(Ranking),
+         Delete_Spe = Tot_Spe - Cum_Spe)
+
+filter_Rank <- DelRare_null
+
+while(sum(filter_Rank$Cum_Spe) > 0) {
+  filter_Rank <- filter_Rank %>% 
+    filter(Ranking < max(Ranking)) %>% 
+    mutate(Cum_Spe = length(Ranking),
+           Delete_Spe = Tot_Spe - Cum_Spe)
+  DelRare_null <- rbind(DelRare_null, filter_Rank)
+}
+
+DelRare_null <- rbind(DelRare_null %>% 
+                   filter(Cum_Spe >= 2),
+                 AB_null[1,] %>% mutate(Plot = 0, Number = -1, Treatment = "test", Year = 0) %>% 
+                   pivot_longer(!Plot & !Number & !Treatment & !Year, 
+                                names_to = "Species", 
+                                values_to = "Abundance") %>% 
+                   mutate(Abundance = 0,
+                          Delete_Spe = 0,
+                          Ranking = 0,
+                          Cum_Spe = 0,
+                          Tot_Spe = 0))
+
+DelRare_null <- DelRare_null %>%
+  transform(Species = str_replace(Species,"SP","")) %>%
+  mutate(Species = as.numeric(Species)) %>% 
+  arrange(Species) %>% 
+  mutate(Species = paste0("SP", Species))
+
+DelRare_null <- DelRare_null %>% 
+  dplyr::select(-Ranking) %>% 
+  pivot_wider(names_from = Species, values_from = Abundance)
+
+DelRare_null <- mutate_all(DelRare_null, ~replace(., is.na(.), 0)) %>% filter (Plot > 0)
+
+saveRDS(DelRare_null, "./Output_Data/DelRare_NullModel_exp.RDS")
+
+#### 2. Remove species from most to least abundant ----
+DelCom_null <- Ranking_null %>% 
+  group_by(Plot, Year, Treatment, Number) %>% 
+  mutate(Cum_Spe = max(Ranking),
+         Tot_Spe = max(Ranking),
+         Delete_Spe = Tot_Spe - Cum_Spe)
+
+filter_Rank <- DelCom_null
+
+while(sum(filter_Rank$Cum_Spe) > 0) {
+  filter_Rank <- filter_Rank %>% 
+    filter(Ranking > min(Ranking)) %>% 
+    mutate(Cum_Spe = length(Ranking),
+           Delete_Spe = Tot_Spe - Cum_Spe)
+  DelCom_null <- rbind(DelCom_null, filter_Rank)
+}  
+
+DelCom_null <- rbind(DelCom_null %>% 
+                  filter(Cum_Spe >= 2),
+                AB_null[1,] %>% mutate(Plot = 0, Number = -1, Treatment = "test", Year = 0) %>% 
+                  pivot_longer(!Plot & !Number & !Treatment & !Year, 
+                               names_to = "Species", 
+                               values_to = "Abundance") %>% 
+                  mutate(Abundance = 0,
+                         Delete_Spe = 0,
+                         Ranking = 0,
+                         Cum_Spe = 0,
+                         Tot_Spe = 0))
+
+DelCom_null <- DelCom_null %>%
+  transform(Species = str_replace(Species,"SP","")) %>%
+  mutate(Species = as.numeric(Species)) %>% 
+  arrange(Species) %>% 
+  mutate(Species = paste0("SP", Species))
+
+DelCom_null <- DelCom_null %>% 
+  dplyr::select(-Ranking) %>% 
+  pivot_wider(names_from = Species, values_from = Abundance)
+
+DelCom_null <- mutate_all(DelCom_null, ~replace(., is.na(.), 0)) %>% filter (Plot > 0)
+
+saveRDS(object = DelCom_null, file = "./Output_Data/DelCom_NullModel_exp.RDS")
+
+## III. Compute Moments ----
+### A. for species removed from least to most abundant ----
+Ab <- readRDS("./Output_Data/DelRare_NullModel_exp.RDS") %>% 
+  dplyr::select(-Plot, -Delete_Spe, -Year, -Treatment, -Cum_Spe, -Tot_Spe)
+
+id <- readRDS("./Output_Data/DelRare_NullModel_exp.RDS") %>% 
+  dplyr::select(Plot, Number, Year, Treatment, Delete_Spe, Cum_Spe, Tot_Spe)
+
+# parallelize
+n_cores <- parallel::detectCores() - 1
+cl <- makeCluster(n_cores)
+registerDoParallel(cl)
+
+MOMENTS <- foreach(i = 0:1000, .combine = rbind, .packages = c("dplyr")) %dopar% {
+  Ab_filter <- subset(Ab, Number == i)[, -1]
+  id_filter <- subset(id, Number == i)
+  Ab_filter <- t(Ab_filter)
+  
+  df <- data.frame(Ab_filter, Trait)
+  df <- na.omit(df)
+  
+  trait <- df[, ncol(df)]
+  Ab_filter <- df[, -ncol(df)]
+  Ab_filter <- t(Ab_filter)
+  
+  dataMOM <- CalculusCW(Ab_filter, trait)
+  
+  MOMENTS_filter <- data.frame(
+    id_filter,
+    data.frame(
+      mean     = dataMOM[[1]], 
+      variance = dataMOM[[2]], 
+      skewness = dataMOM[[3]], 
+      kurtosis = dataMOM[[4]]
+    )
+  )
+  return(MOMENTS_filter)
+}
+stopCluster(cl)
+
+saveRDS(object = MOMENTS, file = "./Output_Data/MOMENTS_DelRare_NullModel_exp.RDS")
+
+### B. for species removed from most to least abundant ----
+Ab <- readRDS("./Output_Data/DelCom_NullModel_exp.RDS") %>% 
+  dplyr::select(-Plot, -Delete_Spe, -Year, -Treatment, -Cum_Spe, -Tot_Spe)
+
+id <- readRDS("./Output_Data/DelCom_NullModel_exp.RDS") %>% 
+  dplyr::select(Plot, Number, Year, Treatment, Delete_Spe, Cum_Spe, Tot_Spe)
+
+# parallelize
+n_cores <- parallel::detectCores() - 1
+cl <- makeCluster(n_cores)
+registerDoParallel(cl)
+
+MOMENTS <- foreach(i = 0:1000, .combine = rbind, .packages = c("dplyr")) %dopar% {
+  Ab_filter <- subset(Ab, Number == i)[, -1]
+  id_filter <- subset(id, Number == i)
+  Ab_filter <- t(Ab_filter)
+  
+  df <- data.frame(Ab_filter, Trait)
+  df <- na.omit(df)
+  
+  trait <- df[, ncol(df)]
+  Ab_filter <- df[, -ncol(df)]
+  Ab_filter <- t(Ab_filter)
+  
+  dataMOM <- CalculusCW(Ab_filter, trait)
+  
+  MOMENTS_filter <- data.frame(
+    id_filter,
+    data.frame(
+      mean     = dataMOM[[1]], 
+      variance = dataMOM[[2]], 
+      skewness = dataMOM[[3]], 
+      kurtosis = dataMOM[[4]]
+    )
+  )
+  return(MOMENTS_filter)
+}
+stopCluster(cl)
+
+saveRDS(object = MOMENTS, file = "./Output_Data/MOMENTS_DelCom_NullModel_exp.RDS")
+
+## IV. SKR parameters ----
+### A. for species removed from least to most abundant ----
+write.table(
+  SKRparam(
+    Moments = readRDS("./Output_Data/MOMENTS_DelRare_NullModel_exp.RDS") %>% 
+      filter(Delete_Spe <= 15) %>% 
+      filter(Number > 0),
+    statisticsFactorName = c("Delete_Spe", "Number"),
+    lin_mod = "lm",
+    slope_ref_TADs = 1,
+    intercept_ref_TADs = 1.86,
+    distance_metric = "RMSE",
+    workers = parallel::detectCores() - 1
+  ),
+  "./Output_Data/SKRparam_DelRare_NullModel_exp.csv",
+  sep = ";",
+  dec = ".",
+  row.names = F
+)
+
+### B. for species removed from most to least abundant ----
+write.table(
+  SKRparam(
+    Moments = readRDS("./Output_Data/MOMENTS_DelCom_NullModel_exp.RDS") %>% 
+      filter(Delete_Spe <= 15) %>% 
+      filter(Number > 0),
+    statisticsFactorName = c("Delete_Spe", "Number"),
+    lin_mod = "lm",
+    slope_ref_TADs = 1,
+    intercept_ref_TADs = 1.86,
+    distance_metric = "RMSE",
+    workers = parallel::detectCores() - 1
+  ),
+  "./Output_Data/SKRparam_DelCom_NullModel_exp.csv",
+  sep = ";",
+  dec = ".",
+  row.names = F
+)
+
+# Part V. Statistic : SES - Observed vs Randomized communities ----
+## I. Function ----
+nullModelStat <- function (observedValue, randomValues, significanceThreshold = c(0.025, 
+                                                                 0.975)){
+  meanRandom <- mean(randomValues)
+  sdRandom <- stats::sd(randomValues)
+  standardizedObserved <- (observedValue - meanRandom)/sdRandom
+  quant <- stats::quantile(x = randomValues, probs = significanceThreshold)
+  return(list(observedValue, 
+              standardizedObserved, 
+              quant[[1]], 
+              quant[[2]], 
+              observedValue > quant[[2]] || observedValue < quant[[1]]))
+}
+
+## II. for species removed from least to most abundant ----
+SKRparam_DelRare_null <- read.csv("./Output_Data/SKRparam_DelRare_NullModel_exp.csv",
+                                 sep = ";",
+                                 dec = ".")
+
+SKRparam_DelRare <- read.csv("./Output_Data/SKRparam_DelRare_exp.csv",
+                            sep = ";",
+                            dec = ".")
+
+ID <- SKRparam_DelRare[,c("Treatment", "Delete_Spe")]
+
+SESSKRDataFrame <- unique(ID)
+
+for (i in unique(SESSKRDataFrame$Treatment)){
+  for (j in unique(SESSKRDataFrame$Delete_Spe)){
+    SESSKRDataFrame[SESSKRDataFrame$Treatment == i & SESSKRDataFrame$Delete_Spe == j, (ncol(unique(as.data.frame(ID))) + 1):(ncol(unique(as.data.frame(ID))) + 5)] <-
+      nullModelStat(
+        observedValue = (SKRparam_DelRare %>% 
+                           filter(Treatment == i & Delete_Spe == j))$Slope,
+        randomValues = (SKRparam_DelRare_null %>% 
+                          filter(Delete_Spe == j))$Slope,
+        significanceThreshold = c(0.05, 0.95))
+    SESSKRDataFrame[SESSKRDataFrame$Treatment == i & SESSKRDataFrame$Delete_Spe == j, (ncol(unique(as.data.frame(ID))) + 6):(ncol(unique(as.data.frame(ID))) + 10)] <-
+      nullModelStat(
+        observedValue = (SKRparam_DelRare %>% 
+                           filter(Treatment == i & Delete_Spe == j))$Intercept,
+        randomValues = (SKRparam_DelRare_null %>% 
+                          filter(Delete_Spe == j))$Intercept,
+        significanceThreshold = c(0.05, 0.95))
+    SESSKRDataFrame[SESSKRDataFrame$Treatment == i & SESSKRDataFrame$Delete_Spe == j, (ncol(unique(as.data.frame(ID))) + 11):(ncol(unique(as.data.frame(ID))) + 15)] <-
+      nullModelStat(
+        observedValue = (SKRparam_DelRare %>% 
+                           filter(Treatment == i & Delete_Spe == j))$Rsquare,
+        randomValues = (SKRparam_DelRare_null %>% 
+                          filter(Delete_Spe == j))$Rsquare,
+        significanceThreshold = c(0.05, 0.95))
+    SESSKRDataFrame[SESSKRDataFrame$Treatment == i & SESSKRDataFrame$Delete_Spe == j, (ncol(unique(as.data.frame(ID))) + 16):(ncol(unique(as.data.frame(ID))) + 20)] <-
+      nullModelStat(
+        observedValue = (SKRparam_DelRare %>% 
+                           filter(Treatment == i & Delete_Spe == j))$distance_predicted_TADs,
+        randomValues = (SKRparam_DelRare_null %>% 
+                          filter(Delete_Spe == j))$distance_predicted_TADs,
+        significanceThreshold = c(0.05, 0.95))
+    SESSKRDataFrame[SESSKRDataFrame$Treatment == i & SESSKRDataFrame$Delete_Spe == j, (ncol(unique(as.data.frame(ID))) + 21):(ncol(unique(as.data.frame(ID))) + 25)] <-
+      nullModelStat(
+        observedValue = (SKRparam_DelRare %>% 
+                           filter(Treatment == i & Delete_Spe == j))$distance_reference_TADs,
+        randomValues = (SKRparam_DelRare_null %>% 
+                          filter(Delete_Spe == j))$distance_reference_TADs,
+        significanceThreshold = c(0.05, 0.95))
+  }
+}
+
+commonColName <- c(
+  "",
+  "SES",
+  "MinQuantile",
+  "MaxQuantile",
+  "significance"
+)
+
+colnames(SESSKRDataFrame) <- c(paste0(c("Treatment", "Delete_Spe")),
+                               paste0(commonColName, "Slope"),
+                               paste0(commonColName, "Intercept"),
+                               paste0(commonColName, "Rsquare"),
+                               paste0(commonColName, "distance_predicted_TADs"),
+                               paste0(commonColName, "distance_reference_TADs"))
+
+write.table(
+  SESSKRDataFrame,
+  "./Output_Data/SESSKRparam_DelRare_exp.csv",
+  sep = ";",
+  dec = ".",
+  row.names = F
+)
+
+## III. for species removed from most to least abundant ----
+SKRparam_DelCom_null <- read.csv("./Output_Data/SKRparam_DelCom_NullModel_exp.csv",
+                                        sep = ";",
+                                        dec = ".")
+
+SKRparam_DelCom <- read.csv("./Output_Data/SKRparam_DelCom_exp.csv",
+                             sep = ";",
+                             dec = ".")
+
+ID <- SKRparam_DelCom[,c("Treatment", "Delete_Spe")]
+
+SESSKRDataFrame <- unique(ID)
+
+for (i in unique(SESSKRDataFrame$Treatment)){
+  for (j in unique(SESSKRDataFrame$Delete_Spe)){
+    SESSKRDataFrame[SESSKRDataFrame$Treatment == i & SESSKRDataFrame$Delete_Spe == j, (ncol(unique(as.data.frame(ID))) + 1):(ncol(unique(as.data.frame(ID))) + 5)] <-
+      nullModelStat(
+        observedValue = (SKRparam_DelCom %>% 
+                           filter(Treatment == i & Delete_Spe == j))$Slope,
+        randomValues = (SKRparam_DelCom_null %>% 
+                          filter(Delete_Spe == j))$Slope,
+        significanceThreshold = c(0.05, 0.95))
+    SESSKRDataFrame[SESSKRDataFrame$Treatment == i & SESSKRDataFrame$Delete_Spe == j, (ncol(unique(as.data.frame(ID))) + 6):(ncol(unique(as.data.frame(ID))) + 10)] <-
+      nullModelStat(
+        observedValue = (SKRparam_DelCom %>% 
+                           filter(Treatment == i & Delete_Spe == j))$Intercept,
+        randomValues = (SKRparam_DelCom_null %>% 
+                          filter(Delete_Spe == j))$Intercept,
+        significanceThreshold = c(0.05, 0.95))
+    SESSKRDataFrame[SESSKRDataFrame$Treatment == i & SESSKRDataFrame$Delete_Spe == j, (ncol(unique(as.data.frame(ID))) + 11):(ncol(unique(as.data.frame(ID))) + 15)] <-
+      nullModelStat(
+        observedValue = (SKRparam_DelCom %>% 
+                           filter(Treatment == i & Delete_Spe == j))$Rsquare,
+        randomValues = (SKRparam_DelCom_null %>% 
+                          filter(Delete_Spe == j))$Rsquare,
+        significanceThreshold = c(0.05, 0.95))
+    SESSKRDataFrame[SESSKRDataFrame$Treatment == i & SESSKRDataFrame$Delete_Spe == j, (ncol(unique(as.data.frame(ID))) + 16):(ncol(unique(as.data.frame(ID))) + 20)] <-
+      nullModelStat(
+        observedValue = (SKRparam_DelCom %>% 
+                           filter(Treatment == i & Delete_Spe == j))$distance_predicted_TADs,
+        randomValues = (SKRparam_DelCom_null %>% 
+                          filter(Delete_Spe == j))$distance_predicted_TADs,
+        significanceThreshold = c(0.05, 0.95))
+    SESSKRDataFrame[SESSKRDataFrame$Treatment == i & SESSKRDataFrame$Delete_Spe == j, (ncol(unique(as.data.frame(ID))) + 21):(ncol(unique(as.data.frame(ID))) + 25)] <-
+      nullModelStat(
+        observedValue = (SKRparam_DelCom %>% 
+                           filter(Treatment == i & Delete_Spe == j))$distance_reference_TADs,
+        randomValues = (SKRparam_DelCom_null %>% 
+                          filter(Delete_Spe == j))$distance_reference_TADs,
+        significanceThreshold = c(0.05, 0.95))
+  }
+}
+
+commonColName <- c(
+  "",
+  "SES",
+  "MinQuantile",
+  "MaxQuantile",
+  "significance"
+)
+
+colnames(SESSKRDataFrame) <- c(paste0(c("Treatment", "Delete_Spe")),
+                               paste0(commonColName, "Slope"),
+                               paste0(commonColName, "Intercept"),
+                               paste0(commonColName, "Rsquare"),
+                               paste0(commonColName, "distance_predicted_TADs"),
+                               paste0(commonColName, "distance_reference_TADs"))
+
+write.table(
+  SESSKRDataFrame,
+  "./Output_Data/SESSKRparam_DelCom_exp.csv",
+  sep = ";",
+  dec = ".",
+  row.names = F
+)
+
+# Part VI. Figures ----
+# Legend note
+treat <- c("NPK", "Unfertilized")
+colchoice <- c("#D81B60", "#1E88E5")
+
+## Figure 1: SAD ~ TAD ----
+Ranking <- read.csv("./Output_Data/Species_Ranking_exp.csv",
+                    sep = ";",
+                    dec = ".")
+
+ggsave("./Figures/F1_SAD.png",
+       ggplot(data = Ranking, 
+              aes(y = Abundance, x = Ranking, col = Treatment, fill = Treatment))+
+         geom_point(alpha = 0.4, shape = 21, size = 2)+
+         geom_line(stat= "smooth", method = "lm", formula = y ~ log(x), linewidth = 1, linetype = 1)+
+         stat_regline_equation(aes(label =  paste(..eq.label.., ..rr.label.., sep = "~~~~")),
+                               formula = y ~ log(x), size = 6, label.x = 15)+
+         scale_fill_manual(name = "Grassland management", limits = treat, values = colchoice)+
+         scale_color_manual(name = "Grassland management", limits = treat, values = colchoice)+
+         theme_bw()+
+         labs(y = "Abundance", x = "Species Ranking")+
+         theme(legend.position = "bottom",
+               axis.text.y = element_text(size = 20),
+               axis.title.y = element_text(size = 30, face = "bold"),
+               axis.title.x = element_text(size = 30, face = "bold"),
+               axis.text.x = element_text(size = 20)),
+       dpi = 600,
+       width = 10,
+       height = 10)
+                 
+
+MOMENTS <- read.csv("./Output_Data/MOMENTS_DelCom_exp.csv",
+                    sep = ";",
+                    dec = ".") %>% 
+  filter(Delete_Spe == 0)
+
+MEAN_MOM <- data.frame(Plot = unique(MOMENTS$Plot),
+                       Treatment = NA,
+                       mean = NA,
+                       variance = NA,
+                       skewness = NA,
+                       kurtosis = NA)
+
+for (i in MEAN_MOM$Plot){
+  MEAN_MOM$mean[MEAN_MOM$Plot == i] <- mean((MOMENTS %>% 
+                                               filter(Plot == i))$mean)
+  MEAN_MOM$variance[MEAN_MOM$Plot == i] <- mean((MOMENTS %>% 
+                                                   filter(Plot == i))$variance)
+  MEAN_MOM$skewness[MEAN_MOM$Plot == i] <- mean((MOMENTS %>% 
+                                                   filter(Plot == i))$skewness)
+  MEAN_MOM$kurtosis[MEAN_MOM$Plot == i] <- mean((MOMENTS %>% 
+                                                   filter(Plot == i))$kurtosis)
+  MEAN_MOM$Treatment[MEAN_MOM$Plot == i] <- unique((MOMENTS %>% 
+                                                      filter(Plot == i))$Treatment)
+}
+
+distrib <- data.frame()
+for (i in MEAN_MOM$Plot){
+  distrib <- rbind(
+    distrib,
+    data.frame(Values = rpearson(10000, moments = c(MEAN_MOM$mean[MEAN_MOM$Plot == i],
+                                                    MEAN_MOM$variance[MEAN_MOM$Plot == i],
+                                                    MEAN_MOM$skewness[MEAN_MOM$Plot == i],
+                                                    MEAN_MOM$kurtosis[MEAN_MOM$Plot == i])))%>%
+      dplyr::filter(quantile(Values, 0.1) < Values & Values < quantile(Values, 0.75)) %>%
+      dplyr::mutate(Plot = i) %>% 
+      dplyr::mutate(Treatment = unique((MEAN_MOM %>% 
+                                          filter(Plot == i))$Treatment))
+  )
+}
+
+ggsave("./Figures/F1_TAD.png",
+       ggplot(distrib %>% 
+                filter(Plot == 20| Plot == 4),
+              aes(Values, fill = Treatment, col = Treatment))+
+         geom_density(alpha = 0.2, adjust  = 2)+
+         scale_fill_manual(name = "Grassland management", limits = treat, values = colchoice)+
+         scale_color_manual(name = "Grassland management", limits = treat, values = colchoice)+
+         theme_bw()+
+         ylim(0, 6)+
+         xlim(2.7, 3.7)+
+         labs(x = "log(SLA)", y = "Abundance")+
+         theme(legend.position = "none",
+               plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+               axis.text.y = element_blank(),
+               axis.title.y = element_text(size = 25, face = "bold"),
+               axis.title.x = element_text(size = 25, face = "bold"),
+               axis.text.x = element_text(size = 20)),
+       dpi = 600,
+       width = 10,
+       height = 7)
+
+## Figure 2: Species deletion ~ distance Skew-Uni & Distance predicted TADs ----
+SKRparam_DelCom_null <- read.csv("./Output_Data/SKRparam_DelCom_NullModel_exp.csv", 
+                            sep = ";",
+                            dec = ".")
+
+SKRparam_DelCom <- read.csv("./Output_Data/SESSKRparam_DelCom_exp.csv", 
+                                      sep = ";",
+                                      dec = ".")
+
+SKRparam_DelRare_null <- read.csv("./Output_Data/SKRparam_DelRare_NullModel_exp.csv", 
+                                  sep = ";",
+                                  dec = ".")
+
+SKRparam_DelRare <- read.csv("./Output_Data/SESSKRparam_DelRare_exp.csv", 
+                                       sep = ";",
+                                       dec = ".")
+
+ggsave("./Figures/F2_SKRparam.png",
+       ggarrange(
+         ggplot()+
+           geom_line(data = SKRparam_DelCom_null, 
+                     aes(x = Delete_Spe, y = distance_reference_TADs, group = Number),
+                     col = "#C0C0C0", linewidth = 0.5)+
+           geom_point(data = SKRparam_DelCom_null, 
+                      aes(x = Delete_Spe, y = distance_reference_TADs),
+                      size = 2, shape = 21, alpha = 0.5, col = "#C0C0C0", fill = "#C0C0C0")+
+           geom_line(data = SKRparam_DelCom, 
+                     aes(x = Delete_Spe, y = distance_reference_TADs, col = Treatment),
+                     linewidth = 1.2)+
+           geom_point(data = SKRparam_DelCom %>% 
+                        filter(significancedistance_reference_TADs == "TRUE"), 
+                      aes(x = Delete_Spe, y = distance_reference_TADs, fill = Treatment),
+                      size = 5, shape = 21, alpha = 1, col = "black")+
+           geom_point(data = SKRparam_DelCom %>% 
+                        filter(significancedistance_reference_TADs == "FALSE"), 
+                      aes(x = Delete_Spe, y = distance_reference_TADs, fill = Treatment, col = Treatment),
+                      size = 5, shape = 21, alpha = 0.4)+
+           scale_fill_manual(name = "Grassland management", limits = treat, values = colchoice)+
+           scale_color_manual(name = "Grassland management", limits = treat, values = colchoice)+
+           theme_bw()+
+           scale_y_continuous(labels = scales::number_format(accuracy = 0.1))+
+           labs(x = "Number of species deleted", y = "Distance from skew-uniform TADs family", title = "Removal of dominant species")+
+           theme(plot.title = element_text(size = 30, face = "bold", hjust = 0.5),
+                 axis.text.y = element_text(size = 17),
+                 axis.title.y = element_text(size = 20, face = "bold"),
+                 axis.title.x = element_blank(),
+                 axis.text.x = element_blank()),
+         ggplot()+
+           geom_line(data = SKRparam_DelRare_null, 
+                     aes(x = Delete_Spe, y = distance_reference_TADs, group = Number),
+                     col = "#C0C0C0", linewidth = 0.5)+
+           geom_point(data = SKRparam_DelRare_null, 
+                      aes(x = Delete_Spe, y = distance_reference_TADs),
+                      size = 2, shape = 21, alpha = 0.5, col = "#C0C0C0", fill = "#C0C0C0")+
+           geom_line(data = SKRparam_DelRare, 
+                     aes(x = Delete_Spe, y = distance_reference_TADs, col = Treatment),
+                     linewidth = 1.2)+
+           geom_point(data = SKRparam_DelRare %>% 
+                        filter(significancedistance_reference_TADs == "TRUE"), 
+                      aes(x = Delete_Spe, y = distance_reference_TADs, fill = Treatment),
+                      size = 5, shape = 21, alpha = 1, col = "black")+
+           geom_point(data = SKRparam_DelRare %>% 
+                        filter(significancedistance_reference_TADs == "FALSE"), 
+                      aes(x = Delete_Spe, y = distance_reference_TADs, fill = Treatment, col = Treatment),
+                      size = 5, shape = 21, alpha = 0.4)+
+           scale_fill_manual(name = "Grassland management", limits = treat, values = colchoice)+
+           scale_color_manual(name = "Grassland management", limits = treat, values = colchoice)+
+           theme_bw()+
+           scale_y_continuous(labels = scales::number_format(accuracy = 0.1))+
+           labs(x = "Number of species deleted", y = "Distance from skew-uniform TADs family", title = "Removal of subordinate species")+
+           theme(plot.title = element_text(size = 30, face = "bold", hjust = 0.5),
+                 axis.text.y = element_text(size = 17),
+                 axis.title.y = element_blank(),
+                 axis.title.x = element_blank(),
+                 axis.text.x = element_blank()),
+         ggplot()+
+           geom_line(data = SKRparam_DelCom_null, 
+                     aes(x = Delete_Spe, y = distance_predicted_TADs, group = Number),
+                     col = "#C0C0C0", linewidth = 0.5)+
+           geom_point(data = SKRparam_DelCom_null, 
+                      aes(x = Delete_Spe, y = distance_predicted_TADs),
+                      size = 2, shape = 21, alpha = 0.5, col = "#C0C0C0", fill = "#C0C0C0")+
+           geom_line(data = SKRparam_DelCom, 
+                     aes(x = Delete_Spe, y = distance_predicted_TADs, col = Treatment),
+                     linewidth = 1.2)+
+           geom_point(data = SKRparam_DelCom %>% 
+                        filter(significancedistance_predicted_TADs == "TRUE"), 
+                      aes(x = Delete_Spe, y = distance_predicted_TADs, fill = Treatment),
+                      size = 5, shape = 21, alpha = 1, col = "black")+
+           geom_point(data = SKRparam_DelCom %>% 
+                        filter(significancedistance_predicted_TADs == "FALSE"), 
+                      aes(x = Delete_Spe, y = distance_predicted_TADs, fill = Treatment, col = Treatment),
+                      size = 5, shape = 21, alpha = 0.4)+
+           scale_fill_manual(name = "Grassland management", limits = treat, values = colchoice)+
+           scale_color_manual(name = "Grassland management", limits = treat, values = colchoice)+
+           theme_bw()+
+           scale_y_continuous(labels = scales::number_format(accuracy = 0.1))+
+           labs(x = "Number of species deleted", y = "Distance from predicted TADs family", title = "Removal of dominant species")+
+           theme(plot.title = element_blank(),
+                 axis.text.y = element_text(size = 17),
+                 axis.title.y = element_text(size = 20, face = "bold"),
+                 axis.title.x = element_text(size = 20, face = "bold"),
+                 axis.text.x = element_text(size = 17)),
+         ggplot()+
+           geom_line(data = SKRparam_DelRare_null, 
+                     aes(x = Delete_Spe, y = distance_predicted_TADs, group = Number),
+                     col = "#C0C0C0", linewidth = 0.5)+
+           geom_point(data = SKRparam_DelRare_null, 
+                      aes(x = Delete_Spe, y = distance_predicted_TADs),
+                      size = 2, shape = 21, alpha = 0.5, col = "#C0C0C0", fill = "#C0C0C0")+
+           geom_line(data = SKRparam_DelRare, 
+                     aes(x = Delete_Spe, y = distance_predicted_TADs, col = Treatment),
+                     linewidth = 1.2)+
+           geom_point(data = SKRparam_DelRare %>% 
+                        filter(significancedistance_predicted_TADs == "TRUE"), 
+                      aes(x = Delete_Spe, y = distance_predicted_TADs, fill = Treatment),
+                      size = 5, shape = 21, alpha = 1, col = "black")+
+           geom_point(data = SKRparam_DelRare %>% 
+                        filter(significancedistance_predicted_TADs == "FALSE"), 
+                      aes(x = Delete_Spe, y = distance_predicted_TADs, fill = Treatment, col = Treatment),
+                      size = 5, shape = 21, alpha = 0.4)+
+           scale_fill_manual(name = "Grassland management", limits = treat, values = colchoice)+
+           scale_color_manual(name = "Grassland management", limits = treat, values = colchoice)+
+           theme_bw()+
+           scale_y_continuous(labels = scales::number_format(accuracy = 0.1))+
+           labs(x = "Number of species deleted", y = "Distance from predicted TADs family", title = "Removal of subordinate species")+
+           theme(plot.title = element_blank(),
+                 axis.text.y = element_text(size = 17),
+                 axis.title.y = element_blank(),
+                 axis.title.x = element_text(size = 20, face = "bold"),
+                 axis.text.x = element_text(size = 17)),
+         
+         ncol = 2,
+         nrow = 2,
+         legend = "none"
+       ),
+       dpi = 600,
+       width = 20,
+       height = 12)
+
+## Figure S1: CV(abundance) ~ Ranking ----
+Ranking <- AB %>% pivot_longer(!Plot & !Year & !Bloc & !Treatment, names_to = "Species", values_to = "Abundance") %>% 
+  group_by(Plot, Bloc, Treatment, Year) %>%
+  mutate(Ranking = rank(-Abundance, ties.method = "random"))
+
+Ranking$Ranking[Ranking$Abundance == 0] <- 0
+
+for (i in unique(Ranking$Year)){
+  for (j in unique(Ranking$Plot)){
+    Ranking$Ranking[Ranking$Plot == j & Ranking$Year == i & Ranking$Ranking == 0] <- max(Ranking$Ranking[Ranking$Plot == j & Ranking$Year == i])+1
+  }
+}
+
+CV <- unique(unique(Ranking %>% 
+                      group_by(Species, Treatment) %>% 
+                      mutate(mean_ranking = mean(Ranking),
+                             CV = sd(Abundance, na.rm = T)/mean(Abundance, na.rm = T))) %>% 
+               ungroup() %>% 
+               dplyr::select(Treatment, Species, CV, mean_ranking))
+
+ggsave("./Figures/FigS1_CVAB_Ranking.png",
+       ggplot()+
+         geom_line(data = CV %>% 
+                     filter(CV <= 2),
+                   aes(x = mean_ranking, y = CV, group = Treatment, col = Treatment),
+                   stat = "smooth", se = F, method = "lm", linetype = 1, linewidth = 1)+
+         geom_point(data = CV %>% 
+                      filter(CV <= 2), 
+                    aes(x = mean_ranking, y = CV, fill = Treatment), 
+                    shape = 21, col = "black", alpha = 0.75, size = 5)+
+         geom_point(data = CV %>% 
+                      filter(CV > 2), 
+                    aes(x = mean_ranking, y = CV, fill = Treatment), 
+                    shape = 21, col = "lightgrey", alpha = 0.25, size = 5)+
+         stat_regline_equation(data = CV %>% 
+                                 filter(CV <= 2),
+                               aes(x = mean_ranking, y = CV, label =  paste(..eq.label.., ..rr.label.., sep = "~~~~"), col = Treatment),
+                               size = 8, label.y.npc = "top")+
+         scale_fill_manual(name = "Grassland management", limits = treat, values = colchoice)+
+         scale_color_manual(name = "Grassland management", limits = treat, values = colchoice)+
+         theme_bw()+
+         ylim(0, 6)+
+         labs(x = "Species Ranking", y = "CV(Abundance)")+
+         theme(legend.position = "bottom",
+               plot.title = element_text(size = 25, face = "bold", hjust = 0.5),
+               axis.text.y = element_text(size = 20),
+               axis.title.y = element_text(size = 25, face = "bold"),
+               axis.title.x = element_text(size = 25, face = "bold"),
+               axis.text.x = element_text(size = 20)),
+       dpi = 600,
+       width = 10,
+       height = 10)

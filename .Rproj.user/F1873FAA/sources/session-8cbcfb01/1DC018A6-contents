@@ -1,0 +1,12 @@
+#' Example dataset: weight
+#'
+#' A dataset containing an example of weighting data and factors
+#'
+#' @format A data frame with 9 rows and 51 variables:
+#' \describe{
+#'   \item{Factor}{Principal Factor}
+#'   \item{Sub_Factor}{Sub Factor}
+#'   \item{I1-I49}{Individual weighted scores}
+#' }
+#' @source Generated internally
+"weight"

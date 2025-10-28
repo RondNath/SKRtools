@@ -1,0 +1,60 @@
+#' Example dataset: weight
+#'
+#' A dataset containing an example of weighting data and factors
+#'
+#' @format A data frame with 9 rows and 51 variables:
+#' \describe{
+#'   \item{Factor}{Principal Factor}
+#'   \item{Sub_Factor}{Sub Factor}
+#'   \item{I1}{Individual 1 weighted scores}
+#'   \item{I2}{Individual 2 weighted scores}
+#'   \item{I3}{Individual 3 weighted scores}
+#'   \item{I4}{Individual 4 weighted scores}
+#'   \item{I5}{Individual 5 weighted scores}
+#'   \item{I6}{Individual 6 weighted scores}
+#'   \item{I7}{Individual 7 weighted scores}
+#'   \item{I8}{Individual 8 weighted scores}
+#'   \item{I9}{Individual 9 weighted scores}
+#'   \item{I10}{Individual 10 weighted scores}
+#'   \item{I11}{Individual 11 weighted scores}
+#'   \item{I12}{Individual 12 weighted scores}
+#'   \item{I13}{Individual 13 weighted scores}
+#'   \item{I14}{Individual 14 weighted scores}
+#'   \item{I15}{Individual 15 weighted scores}
+#'   \item{I16}{Individual 16 weighted scores}
+#'   \item{I17}{Individual 17 weighted scores}
+#'   \item{I18}{Individual 18 weighted scores}
+#'   \item{I19}{Individual 19 weighted scores}
+#'   \item{I20}{Individual 20 weighted scores}
+#'   \item{I21}{Individual 21 weighted scores}
+#'   \item{I22}{Individual 22 weighted scores}
+#'   \item{I23}{Individual 23 weighted scores}
+#'   \item{I24}{Individual 24 weighted scores}
+#'   \item{I25}{Individual 25 weighted scores}
+#'   \item{I26}{Individual 26 weighted scores}
+#'   \item{I27}{Individual 27 weighted scores}
+#'   \item{I28}{Individual 28 weighted scores}
+#'   \item{I29}{Individual 29 weighted scores}
+#'   \item{I30}{Individual 30 weighted scores}
+#'   \item{I31}{Individual 31 weighted scores}
+#'   \item{I32}{Individual 32 weighted scores}
+#'   \item{I33}{Individual 33 weighted scores}
+#'   \item{I34}{Individual 34 weighted scores}
+#'   \item{I35}{Individual 35 weighted scores}
+#'   \item{I36}{Individual 36 weighted scores}
+#'   \item{I37}{Individual 37 weighted scores}
+#'   \item{I38}{Individual 38 weighted scores}
+#'   \item{I39}{Individual 39 weighted scores}
+#'   \item{I40}{Individual 40 weighted scores}
+#'   \item{I41}{Individual 41 weighted scores}
+#'   \item{I42}{Individual 42 weighted scores}
+#'   \item{I43}{Individual 43 weighted scores}
+#'   \item{I44}{Individual 44 weighted scores}
+#'   \item{I45}{Individual 45 weighted scores}
+#'   \item{I46}{Individual 46 weighted scores}
+#'   \item{I47}{Individual 47 weighted scores}
+#'   \item{I48}{Individual 48 weighted scores}
+#'   \item{I49}{Individual 49 weighted scores}
+#' }
+#' @source Generated internally
+"weight"
