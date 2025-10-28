@@ -27,3 +27,5 @@ Step 2 - Function: SKR analysis of the distributions - "SKRparam"
     - R²
     - distance from predited distribution family (Slope and Y-intercept predicted)
     - distance from a reference distribution family (default skew-uniform family: slope = 1; intercept = 1.86)
+    - CV of distance from a predited distribution family (Slope and Y-intercept predicted)
+    - CV of distance from a reference distribution family
