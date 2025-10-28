@@ -4,7 +4,7 @@ This package offers simple tools to study complex distributions and their dynami
 - the computation of the individual moments (mean, variance, skewness and kurtosis),
 - a Skewness-Kurtosis Relationship (SKR) analysis and related regression parameters (Slope, Y-intercept, R², distance from predicted SKR, distance from reference SKR)
 
-The SKR framework consider the complexity found in distribution shapes (non Gaussian) and analyse similarities in these shapes. 
+The SKR framework consider the complexity found in distribution shapes (non Gaussian) and analyses similarities in these shapes. 
 
 Installing the package
 ---------------------------------
@@ -15,12 +15,13 @@ devtools::install_github("RondNath/SKRtools")
 
 Step 1 - Function: Compute the individual moments of distributions - "Moments"
 ---
-Compute the mean, the variance, the skewness and the kurtosis
+Compute the mean, the variance, the skewness and the kurtosis; 
+for a list of groups (related by explanatory variables) of values with the possibility to add weighting factors
 
 
 Step 2 - Function: SKR analysis of the distributions - "SKRparam"
 ---
--   Calculate the SKR for the distributions group per statistic factors 
+-   Compute the SKR for a group of distributions (related by explanatory variables)
 -   Extract the parameters:
     - Slope
     - Y-intercept  
