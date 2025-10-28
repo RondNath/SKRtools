@@ -1,4 +1,4 @@
-# Distributions analysis
+# SKRtools: Distributions analysis
 
 This package offers simple tools to study complex distributions and their dynamic: 
 - the computation of the individual moments (mean, variance, skewness and kurtosis),
