@@ -1,4 +1,5 @@
 # I. PACKAGES ----
+library(devtools)
 devtools::install_github("RondNath/SKRtools", force = T)
 library(SKRtools)
 library(dplyr)
