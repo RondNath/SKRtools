@@ -15,8 +15,7 @@ devtools::install_github("RondNath/SKRtools")
 
 Step 1 - Function: Compute the individual moments of distributions - "Moments"
 ---
-Compute the mean, the variance, the skewness and the kurtosis; 
-for a list of groups (related by explanatory variables) of values with the possibility to add weighting factors
+Compute the mean, the variance, the skewness and the kurtosis for groups of values (related by explanatory variables) with the possibility to add weighting factors
 
 
 Step 2 - Function: SKR analysis of the distributions - "SKRparam"
@@ -26,7 +25,7 @@ Step 2 - Function: SKR analysis of the distributions - "SKRparam"
     - Slope
     - Y-intercept  
     - R²
-    - distance from predited distribution family (Slope and Y-intercept predicted)
-    - distance from a reference distribution family (default skew-uniform family: slope = 1; intercept = 1.86)
+    - distance from predited distribution family (Slope and Y-intercept predicted, index of stability in the shapes of the distributions)
+    - distance from a reference distribution family (default skew-uniform family: slope = 1; intercept = 1.86, the skew-uniform is a potential maximum evenness so interpreted as an index of evenness in the shapes of the distributions)
     - CV of distance from a predited distribution family (Slope and Y-intercept predicted)
     - CV of distance from a reference distribution family
