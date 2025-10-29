@@ -18,6 +18,8 @@
 #' @importFrom future plan
 #' @importFrom parallel detectCores mclapply
 #' @importFrom stats mean var na.omit
+#' @importFrom future.apply future_lapply
+#'@importFrom progressr handlers progressor with_progress
 #' @examples
 #' head(values)
 #' Moments(
@@ -88,61 +90,58 @@ Moments <- function(
   
   # Case 1: Compute moment for a list of values ("values") ----
   if (is.null(weight) && is.null(values_factors)) {
-    # remove NA
-    values <- na.omit(values) 
     # compute moments
-    return(compute_moments(x = values))
+    return(compute_moments(x = stats::na.omit(values)))
   }
+  
+  # progress bar setup
+  progressr::handlers(global = TRUE)
   
   # Case 2: Compute moments of a list of values ("values") observed under different conditions ("values_factors") ----
   if (!is.null(values_factors) && is.null(weight)) {
     # remove NA
-    df_values <- cbind(data.frame(values_factors) %>% 
-                         tidyr::unite("Factors", 
-                                      dplyr::everything(), 
-                                      sep = "_", 
-                                      remove = FALSE), 
-                       values) %>% 
-      na.omit()
+    df_values <- base::cbind(
+      tidyr::unite(base::data.frame(values_factors), "Factors", dplyr::everything(), sep = "_", remove = FALSE),
+      values
+    ) %>%  stats::na.omit()
     
     # compute moments per factors
-    group_factor <- unique(data.frame(values_factors) %>% 
-                             tidyr::unite("Factors", 
-                                          dplyr::everything(), 
-                                          sep = "_", 
-                                          remove = FALSE))
-    results <- parallel::mclapply(group_factor$Factors, 
-                        function(g) {
-                          compute_moments(df_values$values[df_values$Factors == g])
-                        }, 
-                        mc.cores = workers)
+    group_factor <- base::unique(
+      base::data.frame(values_factors) %>% 
+        tidyr::unite("Factors", dplyr::everything(), sep = "_", remove = FALSE)
+    )
     
-    return(data.frame(group_factor %>% 
-                        dplyr::select(-Factors), 
-                      do.call(rbind, 
-                              results)))
+    progressr::with_progress({
+      p <- progressr::progressor(along = group_factor$Factors)
+      results <- future.apply::future_lapply(group_factor$Factors, 
+                                             function(g) {
+                                               p()
+                                               compute_moments(df_values$values[df_values$Factors == g])
+                                             })
+    })
+    return(base::data.frame(
+      dplyr::select(group_factor, -Factors),
+      base::do.call(base::rbind, results)
+    ))
   }
   
   # Case 3: Compute weighting ("weight" & "weight_factors") moments with or without variability in the observation of values by individuals ("values_factors") ---- 
   # Factor for computation
   if (!is.null(weight)) {
-    df_weight <- cbind(data.frame(weight_factors) %>%
-                         tidyr::unite("Factors", 
-                               dplyr::everything(), 
-                               sep = "_", 
-                               remove = FALSE), 
-                       weight)
+    df_weight <- base::cbind(
+      base::data.frame(weight_factors) %>% 
+        tidyr::unite("Factors", dplyr::everything(), sep = "_", remove = FALSE),
+      weight
+    )
     if (is.null(values_factors)) {
-      df_values <- data.frame(individual_id, 
-                              values)
+      df_values <- base::data.frame(individual_id, values)
     } else {
-      df_values <- data.frame(data.frame(values_factors) %>%
-                                tidyr::unite("Factors", 
-                                      dplyr::everything(), 
-                                      sep = "_", 
-                                      remove = FALSE), 
-                              individual_id, 
-                              values)
+      df_values <- base::data.frame(
+        base::data.frame(values_factors) %>% 
+          tidyr::unite("Factors", dplyr::everything(), sep = "_", remove = FALSE),
+        individual_id,
+        values
+      )
     }
     # check if values and weight are linked by the same factors
     if (!is.null(values_factors)) {
@@ -151,41 +150,40 @@ Moments <- function(
         stop("weight_factors and values_factors must be the same!")
       }
     }
-    group_factor <- data.frame(weight_factors) %>% 
-                             tidyr::unite("Factors", 
-                                          dplyr::everything(), 
-                                          sep = "_", 
-                                          remove = FALSE)
-    # compil weight and values per Factors
-    results <- parallel::mclapply(group_factor$Factors, 
-                        function(g) {
-      w <- df_weight %>% 
-        dplyr::filter(Factors == g)
-      wv <- data.frame(weight = t(w %>% 
-                                    dplyr::select(-colnames(group_factor))))
-      wv$individual_id <- rownames(wv)
-      
-      if (!is.null(values_factors)) {
-        v <- df_values %>%
-          dplyr::filter(Factors == g) %>%
-          dplyr::select(-colnames(group_factor))
-      } else {
-        v <- df_values
-      }
-      # remove NA
-      merged_wv <- dplyr::left_join(v, 
-                          wv, 
-                          by = "individual_id") %>% 
-        na.omit()
-      # compute moments
-      compute_moments(x = merged_wv$values, 
-                      w = merged_wv$weight)
-    }, 
-    mc.cores = workers)
+    group_factor <- base::data.frame(weight_factors) %>% 
+      tidyr::unite("Factors", dplyr::everything(), sep = "_", remove = FALSE)
     
-    return(data.frame(group_factor %>% 
-                        dplyr::select(-Factors), 
-                      do.call(rbind, 
-                              results)))
+    
+    progressr::with_progress({
+      p <- progressr::progressor(along = group_factor$Factors)
+      results <- future.apply::future_lapply(group_factor$Factors, 
+                                             function(g) {
+                                               p()
+                                               w <- dplyr::filter(df_weight, Factors == g)
+                                               wv <-  base::data.frame(weight = base::t(dplyr::select(w, -base::colnames(group_factor))))
+                                               wv$individual_id <- base::rownames(wv)
+                                               
+                                               if (!is.null(values_factors)) {
+                                                 v <- df_values %>%
+                                                   dplyr::filter(Factors == g) %>%
+                                                   dplyr::select(-base::colnames(group_factor))
+                                               } else {
+                                                 v <- df_values
+                                               }
+                                               
+                                               merged_wv <- dplyr::left_join(v, 
+                                                                             wv, 
+                                                                             by = "individual_id") %>% 
+                                                 stats::na.omit()
+                                               # compute moments
+                                               compute_moments(x = merged_wv$values, 
+                                                               w = merged_wv$weight)
+                                             })
+    })
+    
+    return(base::data.frame(
+      dplyr::select(group_factor, -Factors),
+      base::do.call(base::rbind, results)
+    ))
   }
 }
