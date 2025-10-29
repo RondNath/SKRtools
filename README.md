@@ -1,8 +1,8 @@
 # SKRtools: Distributions analysis
 
 This package offers simple tools to study complex distributions (non Gaussian) and their dynamic: 
-- the computation of the individual moments (mean, variance, skewness and kurtosis),
-- a Skewness-Kurtosis Relationship (SKR) analysis and related regression parameters (Slope, Y-intercept, R², distance from predicted SKR, distance from reference SKR)
+- The computation of the individual moments (mean, variance, skewness and kurtosis),
+- The Skewness-Kurtosis Relationship (SKR) analysis and related regression parameters (Slope, Y-intercept, R², distance from predicted SKR, distance from reference SKR)
 
 The SKR framework consider the complexity found in distribution shapes (non Gaussian) and analyses similarities in these shapes. 
 
@@ -20,7 +20,7 @@ Compute the mean, the variance, the skewness and the kurtosis for groups of valu
 
 Step 2 - Function: SKR analysis of the distributions - "SKRparam"
 ---
--   Compute the SKR for a group of distributions (related by explanatory variables)
+-   Analyse the SKR for a group of distributions (related by explanatory variables)
 -   Extract the parameters:
     - Slope
     - Y-intercept  
