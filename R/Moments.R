@@ -13,7 +13,6 @@
 #' kurtosis of values per values_factors and/or weight_factors,
 #' @export
 #' @import data.table
-#' @importFrom stats mean var
 #' @examples
 #' head(values)
 #' Moments(
@@ -50,10 +49,10 @@ Moments <- function(
       s <- sum(((x - m)^3 / v^(3/2)) * w)
       k <- sum(((x - m)^4 / v^2) * w)
     } else {
-      m <- stats::mean(x)
-      v <- stats::var(x)
-      s <- stats::mean((x - m)^3) / (v^(3/2))
-      k <- stats::mean((x - m)^4) / (v^2)
+      m <- mean(x)
+      v <- var(x)
+      s <- mean((x - m)^3) / (v^(3/2))
+      k <- mean((x - m)^4) / (v^2)
     }
     data.frame(mean = m, variance = v, skewness = s, kurtosis = k)
   }

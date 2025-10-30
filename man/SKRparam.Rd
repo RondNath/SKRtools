@@ -10,8 +10,7 @@ SKRparam(
   lin_mod = "lm",
   slope_ref = 1,
   intercept_ref = 1.86,
-  distance_metric = "RMSE",
-  workers = parallel::detectCores() - 1
+  distance_metric = "RMSE"
 )
 }
 \arguments{
@@ -26,8 +25,6 @@ SKRparam(
 \item{intercept_ref}{intercept of a reference SKR used as a baseline (default: intercept_ref = 1.86; skew-uniform intercept)}
 
 \item{distance_metric}{Indicates the method to compute distance-based regression parameters: choose "RMSE" (for Root Mean Square Error, default) or "MAE" (for Mean Absolute Error)}
-
-\item{workers}{Cores used for parallelisation}
 }
 \value{
 data.frame with:
@@ -44,13 +41,4 @@ Launch the SKR analysis of datasets with skewness and kurtosis values, based on 
 }
 \examples{
 head(SK)
-SKRparam(
-moments = SK,
-Factors = SK[,c("Factor")],
-slope_ref = 1,
-intercept_ref = 1.86,
-distance_metric = "RMSE",
-lin_mod = "lm",
-workers = parallel::detectCores() - 1
-)
 }

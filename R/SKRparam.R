@@ -16,19 +16,18 @@
 #' distance from reference SKR per Factors,
 #' CV of the distance from reference SKR per Factors.
 #' @export
-#' @importFrom data.table as.data.table .SD := .N
-#' @importFrom stats lm residuals var
-#' @importFrom mblm mblm
+#' @importFrom data.table
+#' @importFrom mblm
 #' @examples
 #' head(SK)
-#' SKRparam(
-#' moments = SK,
-#' Factors = SK[,c("Factor")],
-#' slope_ref = 1,
-#' intercept_ref = 1.86,
-#' distance_metric = "RMSE",
-#' lin_mod = "lm"
-#' )
+# SKRparam(
+# moments = SK,
+# Factors = data.frame(SK[,c("Factor"), drop = FALSE]),
+# slope_ref = 1,
+# intercept_ref = 1.86,
+# distance_metric = "RMSE",
+# lin_mod = "lm"
+# )
 
 SKRparam <- function(
     moments,
@@ -53,17 +52,17 @@ SKRparam <- function(
     
     fit <- if (lin_mod == "lm") lm(y ~ x) else mblm::mblm(y ~ x)
     
-    residuals_fit <- stats::residuals(fit)
+    residuals_fit <- residuals(fit)
     dist_pred <- if (distance_metric == "RMSE") sqrt(mean(residuals_fit^2, na.rm = TRUE)) else mean(abs(residuals_fit), na.rm = TRUE)
     dist_ref_val <- if (distance_metric == "RMSE") sqrt(mean(dist_ref^2, na.rm = TRUE)) else mean(abs(dist_ref), na.rm = TRUE)
     
-    cv_pred <- stats::sd(abs(residuals_fit), na.rm = TRUE) * 100 / mean(abs(residuals_fit), na.rm = TRUE)
-    cv_ref <- stats::sd(abs(dist_ref), na.rm = TRUE) * 100 / mean(abs(dist_ref), na.rm = TRUE)
+    cv_pred <- sd(abs(residuals_fit), na.rm = TRUE) * 100 / mean(abs(residuals_fit), na.rm = TRUE)
+    cv_ref <- sd(abs(dist_ref), na.rm = TRUE) * 100 / mean(abs(dist_ref), na.rm = TRUE)
     
     data.table(
-      Slope = stats::coef(fit)[2],
-      Intercept = stats::coef(fit)[1],
-      Rsquare = 1 - mean(residuals_fit^2, na.rm = TRUE) / stats::var(y, na.rm = TRUE),
+      Slope = coef(fit)[2],
+      Intercept = coef(fit)[1],
+      Rsquare = 1 - mean(residuals_fit^2, na.rm = TRUE) / var(y, na.rm = TRUE),
       distance_predicted_SKR = dist_pred,
       distance_reference_SKR = dist_ref_val,
       CV_distance_predicted_SKR = cv_pred,

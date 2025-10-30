@@ -55,7 +55,7 @@ SKRtools::Moments(
 # III. SKR analysis ----
 SKRtools::SKRparam(
     moments = SKRtools::SK,
-    Factors = SKRtools::SK[,c("Sub_Factor", "Factor"), drop = FALSE],
+    Factors = SKRtools::SK[,c("Sub_Factor"), drop = FALSE],
     lin_mod = "lm",
     slope_ref = 1,
     intercept_ref = 1.86,

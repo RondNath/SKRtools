@@ -9,8 +9,7 @@ Moments(
   individual_id = NULL,
   weight = NULL,
   values_factors = NULL,
-  weight_factors = NULL,
-  workers = parallel::detectCores() - 1
+  weight_factors = NULL
 )
 }
 \arguments{
@@ -23,8 +22,6 @@ Moments(
 \item{values_factors}{dataframe of the factors of observations of the values vector}
 
 \item{weight_factors}{dataframe of the factors of observations of the weight dataframe}
-
-\item{workers}{Cores used for parallelisation (used 1 for no parallelisation)}
 }
 \value{
 data.frame with:
@@ -43,7 +40,6 @@ values = values$Values,
 individual_id = NULL,
 weight = NULL,
 values_factors = NULL,
-weight_factors = NULL,
-workers = 1
+weight_factors = NULL
 )
 }
