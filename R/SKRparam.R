@@ -6,7 +6,6 @@
 #' @param slope_ref slope of a reference SKR used as a baseline (default: slope_ref = 1; skew-uniform slope)
 #' @param intercept_ref intercept of a reference SKR used as a baseline (default: intercept_ref = 1.86; skew-uniform intercept)
 #' @param distance_metric Indicates the method to compute distance-based regression parameters: choose "RMSE" (for Root Mean Square Error, default) or "MAE" (for Mean Absolute Error)
-#' @param workers Cores used for parallelisation
 #' @returns
 #' data.frame with:
 #' Slope per Factors,
@@ -17,14 +16,9 @@
 #' distance from reference SKR per Factors,
 #' CV of the distance from reference SKR per Factors.
 #' @export
-#' @importFrom dplyr mutate select filter across slice %>%
-#' @importFrom future plan
-#' @importFrom future.apply future_lapply
-#' @importFrom progressr with_progress progressor handlers
-#' @importFrom mblm mblm
-#' @importFrom parallel detectCores
+#' @importFrom data.table as.data.table .SD := .N
 #' @importFrom stats lm residuals var
-#' @importFrom tidyr unite
+#' @importFrom mblm mblm
 #' @examples
 #' head(SK)
 #' SKRparam(
@@ -33,8 +27,7 @@
 #' slope_ref = 1,
 #' intercept_ref = 1.86,
 #' distance_metric = "RMSE",
-#' lin_mod = "lm",
-#' workers = parallel::detectCores() - 1
+#' lin_mod = "lm"
 #' )
 
 SKRparam <- function(
@@ -43,114 +36,52 @@ SKRparam <- function(
     lin_mod = "lm",
     slope_ref = 1,
     intercept_ref = 1.86,
-    distance_metric = "RMSE",
-    workers = parallel::detectCores() - 1
+    distance_metric = "RMSE"
 ) {
   # test data input validity
-  if (is.null(moments) || is.null(moments$skewness) || is.null(moments$kurtosis)){
+  if (is.null(moments) || is.null(moments$skewness) || is.null(moments$kurtosis)) {
     stop("We need skewness and kurtosis values in 'moments'!")
   }
-  if (lin_mod != "lm" && lin_mod != "mblm"){
-    stop("Unknown lin_mod. Use 'lm' or 'mblm'!")
-  }
-  if (distance_metric != "RMSE" && distance_metric != "MAE"){
-    stop("Unknown distance_metric. Use 'RMSE' or 'MAE'!")
-  }
-  if (!is.null(Factors) && (nrow(data.frame(Factors)) != nrow(data.frame(moments)))){
-    stop("'Factors' and 'moments' must have the same lenght!")
-  }
-  if (!is.null(Factors) && any((data.frame(Factors) %>% 
-          tidyr::unite("Factors", 
-                       dplyr::everything(), 
-                       sep = "_", 
-                       remove = TRUE) %>%
-          dplyr::count(Factors))$n < 2)) {
-    stop("Must have at least two repetitions per Factors to build SKR!")
-  }
-  if (!is.null(Factors) && any((data.frame(Factors) %>% 
-                                tidyr::unite("Factors", 
-                                             dplyr::everything(), 
-                                             sep = "_", 
-                                             remove = TRUE) %>%
-                                dplyr::count(Factors))$n == 2)) {
-    warning("Warning: for some Factors, SKR is built with only two observations")
+  if (!lin_mod %in% c("lm", "mblm")) stop("Unknown lin_mod. Use 'lm' or 'mblm'!")
+  if (!distance_metric %in% c("RMSE", "MAE")) stop("Unknown distance_metric. Use 'RMSE' or 'MAE'!")
+  
+  # intern function to do SKR analysis and compute parameters
+  skr_analysis <- function(dt) {
+    y <- dt$kurtosis
+    x <- dt$skewness^2
+    dist_ref <- y - (slope_ref * x + intercept_ref)
+    
+    fit <- if (lin_mod == "lm") lm(y ~ x) else mblm::mblm(y ~ x)
+    
+    residuals_fit <- stats::residuals(fit)
+    dist_pred <- if (distance_metric == "RMSE") sqrt(mean(residuals_fit^2, na.rm = TRUE)) else mean(abs(residuals_fit), na.rm = TRUE)
+    dist_ref_val <- if (distance_metric == "RMSE") sqrt(mean(dist_ref^2, na.rm = TRUE)) else mean(abs(dist_ref), na.rm = TRUE)
+    
+    cv_pred <- stats::sd(abs(residuals_fit), na.rm = TRUE) * 100 / mean(abs(residuals_fit), na.rm = TRUE)
+    cv_ref <- stats::sd(abs(dist_ref), na.rm = TRUE) * 100 / mean(abs(dist_ref), na.rm = TRUE)
+    
+    data.table(
+      Slope = stats::coef(fit)[2],
+      Intercept = stats::coef(fit)[1],
+      Rsquare = 1 - mean(residuals_fit^2, na.rm = TRUE) / stats::var(y, na.rm = TRUE),
+      distance_predicted_SKR = dist_pred,
+      distance_reference_SKR = dist_ref_val,
+      CV_distance_predicted_SKR = cv_pred,
+      CV_distance_reference_SKR = cv_ref
+    )
   }
   
-  # session type for parallelisation
-  if (.Platform$OS.type == "windows") {
-    future::plan(future::multisession, 
-                 workers = workers)
+  dt_moments <- data.table::as.data.table(moments)
+  
+  if (!is.null(Factors)) {
+    if ((nrow(Factors) != nrow(moments))) stop("'Factors' and 'moments' must have the same lenght!")
+    groups <- colnames(Factors)
+    if (any(dt_moments[, .N, by = groups]$N < 2)) {
+    stop("Must have at least two observations per Factors to build SKR!")
+    }
+    res_SKR <- dt_moments[, skr_analysis(.SD), by = groups]
   } else {
-    future::plan(future::multicore, 
-                 workers = workers)
+    res_SKR <- skr_analysis(dt_moments)
   }
-  
-  # group Factors to build SKR
-  if (!is.null(Factors)){
-    moments <- cbind(moments,
-                     data.frame(Factors) %>% 
-                       tidyr::unite("Factors", 
-                                    dplyr::everything(), 
-                                    sep = "_", 
-                                    remove = TRUE))
-  }else{
-    moments <- moments %>% 
-      dplyr::mutate(Factors = "A")
-  }
-  return_SKR <- unique(moments %>%
-                         dplyr::select(Factors, 
-                                       colnames(Factors)))
-  group_factor <- unique(moments$Factors)
-  
-  # progression bar
-  results <- NULL
-  progressr::with_progress({
-    handlers("txtprogressbar")
-    p <- progressr::progressor(along = group_factor)
-    res_list <- future.apply::future_lapply(group_factor, 
-                              function(i) {
-      p()# progression
-      
-                                moments_filter <- moments %>% 
-        dplyr::filter(Factors == i)
-      y <- moments_filter$kurtosis
-      x <- moments_filter$skewness^2
-      distance_reference_SKR <- y - (slope_ref * x + intercept_ref)
-      # linear model
-      if (lin_mod == "lm") {
-        fit <- lm(y ~ x)
-      } else if (lin_mod == "mblm") {
-        fit <- mblm::mblm(y ~ x)
-      }
-      # Compute SKR parameters
-      if (distance_metric == "RMSE") {
-        dist_pred <- sqrt(mean(fit$residuals^2, na.rm = TRUE))
-        dist_ref <- sqrt(mean(distance_reference_SKR^2, na.rm = TRUE))
-      } else if (distance_metric == "MAE") {
-        dist_pred <- mean(abs(fit$residuals), na.rm = TRUE)
-        dist_ref <- mean(abs(distance_reference_SKR), na.rm = TRUE)
-      } else {
-        stop("Unknown distance_metric. Use 'RMSE' or 'MAE'.")
-      }
-      cv_pred <- sd(abs(fit$residuals), na.rm = TRUE) * 100 / mean(abs(fit$residuals), na.rm = TRUE)
-      cv_ref <- sd(abs(distance_reference_SKR), na.rm = TRUE) * 100 / mean(abs(distance_reference_SKR), na.rm = TRUE)
-      
-      # compil SKR parameters per Factors
-      data.frame(
-        return_SKR %>% 
-          dplyr::filter(Factors == i) %>% 
-          slice(1),
-        Slope = coef(fit)[2],
-        Intercept = coef(fit)[1],
-        Rsquare = 1 - (mean(stats::residuals(fit)^2, na.rm = TRUE) / var(y, na.rm = TRUE)),
-        distance_predicted_SKR = dist_pred,
-        distance_reference_SKR = dist_ref,
-        CV_distance_predicted_SKR = cv_pred,
-        CV_distance_reference_SKR = cv_ref,
-        stringsAsFactors = FALSE
-      )
-    })
-    results <- do.call(rbind, res_list)
-  })
-  return(results)
+  return(res_SKR)
 }
