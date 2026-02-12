@@ -62,16 +62,16 @@ SKRparam <- function(
         dist_ref_val <- sqrt(mean((y - y_pred_ref)^2, na.rm = TRUE))
 
       } else {
-        dist_pred <- sqrt(mean((log(y) - log(y_pred))^2, na.rm = TRUE)) 
-        dist_ref_val <- sqrt(mean((log(y) - log(y_pred_ref))^2, na.rm = TRUE))
+        dist_pred <- sqrt(mean((log(y + 1) - log(y_pred + 1))^2, na.rm = TRUE)) 
+        dist_ref_val <- sqrt(mean((log(y + 1) - log(y_pred_ref + 1))^2, na.rm = TRUE))
       }
     } else if (distance_metric == "MAE") {
       if (!log_distance) {
         dist_pred <- mean(abs(residuals_fit), na.rm = TRUE)
         dist_ref_val <- mean(abs(y - y_pred_ref), na.rm = TRUE)
       } else {
-        dist_pred <- mean(abs(log(y) - log(y_pred)), na.rm = TRUE) 
-        dist_ref_val <- mean(abs(log(y) - log(y_pred_ref)), na.rm = TRUE)
+        dist_pred <- mean(abs(log(y + 1) - log(y_pred + 1)), na.rm = TRUE) 
+        dist_ref_val <- mean(abs(log(y + 1) - log(y_pred_ref + 1)), na.rm = TRUE)
       }
     }
     
