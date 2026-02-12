@@ -10,7 +10,8 @@ SKRparam(
   lin_mod = "lm",
   slope_ref = 1,
   intercept_ref = 1.86,
-  distance_metric = "RMSE"
+  distance_metric = "RMSE",
+  log_distance = FALSE
 )
 }
 \arguments{
@@ -25,6 +26,8 @@ SKRparam(
 \item{intercept_ref}{intercept of a reference SKR used as a baseline (default: intercept_ref = 1.86; skew-uniform intercept)}
 
 \item{distance_metric}{Indicates the method to compute distance-based regression parameters: choose "RMSE" (for Root Mean Square Error, default) or "MAE" (for Mean Absolute Error)}
+
+\item{log_distance}{Logical. If \code{TRUE}, the error metrics (RMSE, MAE, CV) are computed on the log-transformed distances between observed and predicted kurtosis values.}
 }
 \value{
 data.frame with:
