@@ -59,7 +59,8 @@ SKRtools::SKRparam(
     lin_mod = "lm",
     slope_ref = 1,
     intercept_ref = 1.86,
-    distance_metric = "RMSE"
+    distance_metric = "RMSE",
+    log_distance = FALSE
 )
 
 SKRtools::SKRparam(
@@ -68,5 +69,6 @@ SKRtools::SKRparam(
   lin_mod = "lm",
   slope_ref = 1,
   intercept_ref = 1.86,
-  distance_metric = "RMSE"
+  distance_metric = "RMSE",
+  log_distance = FALSE
 )
