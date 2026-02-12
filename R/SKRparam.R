@@ -6,7 +6,7 @@
 #' @param slope_ref slope of a reference SKR used as a baseline (default: slope_ref = 1; skew-uniform slope)
 #' @param intercept_ref intercept of a reference SKR used as a baseline (default: intercept_ref = 1.86; skew-uniform intercept)
 #' @param distance_metric Indicates the method to compute distance-based regression parameters: choose "RMSE" (for Root Mean Square Error, default) or "MAE" (for Mean Absolute Error)
-#' @param log_distance Logical. If `TRUE`, the error metrics (RMSE, MAE, CV) are computed on the log-transformed distances between observed and predicted kurtosis values.
+#' @param log_distance Logical. If `TRUE`, the error metrics (RMSE, MAE) are computed on the log-transformed distances between observed and predicted kurtosis values.
 #' @returns
 #' data.frame with:
 #' Slope per Factors,
@@ -60,27 +60,23 @@ SKRparam <- function(
       if (!log_distance) {
         dist_pred <- sqrt(mean(residuals_fit^2, na.rm = TRUE))
         dist_ref_val <- sqrt(mean((y - y_pred_ref)^2, na.rm = TRUE))
-        cv_pred <- sd(abs(residuals_fit), na.rm = TRUE) * 100 / mean(abs(residuals_fit), na.rm = TRUE)
-        cv_ref <- sd(abs(y - y_pred_ref), na.rm = TRUE) * 100 / mean(abs(y - y_pred_ref), na.rm = TRUE)
+
       } else {
-        dist_pred <- sqrt(mean((log(y + 1) - log(y_pred + 1))^2, na.rm = TRUE)) 
-        dist_ref_val <- sqrt(mean((log(y + 1) - log(y_pred_ref + 1))^2, na.rm = TRUE))
-        cv_pred <- sd(abs(log(y + 1) - log(y_pred + 1)), na.rm = TRUE) * 100 / mean(abs(log(y + 1) - log(y_pred + 1)), na.rm = TRUE)
-        cv_ref <- sd(abs(log(y + 1) - log(y_pred_ref + 1)), na.rm = TRUE) * 100 / mean(abs(log(y + 1) - log(y_pred_ref + 1)), na.rm = TRUE)
+        dist_pred <- sqrt(mean((log(y) - log(y_pred))^2, na.rm = TRUE)) 
+        dist_ref_val <- sqrt(mean((log(y) - log(y_pred_ref))^2, na.rm = TRUE))
       }
     } else if (distance_metric == "MAE") {
       if (!log_distance) {
         dist_pred <- mean(abs(residuals_fit), na.rm = TRUE)
         dist_ref_val <- mean(abs(y - y_pred_ref), na.rm = TRUE)
-        cv_pred <- sd(abs(residuals_fit), na.rm = TRUE) * 100 / mean(abs(residuals_fit), na.rm = TRUE)
-        cv_ref <- sd(abs(y - y_pred_ref), na.rm = TRUE) * 100 / mean(abs(y - y_pred_ref), na.rm = TRUE)
       } else {
-        dist_pred <- mean(abs(log(y + 1) - log(y_pred + 1)), na.rm = TRUE) 
-        dist_ref_val <- mean(abs(log(y + 1) - log(y_pred_ref + 1)), na.rm = TRUE)
-        cv_pred <- sd(abs(log(y + 1) - log(y_pred + 1)), na.rm = TRUE) * 100 / mean(abs(log(y + 1) - log(y_pred + 1)), na.rm = TRUE)
-        cv_ref <- sd(abs(log(y + 1) - log(y_pred_ref + 1)), na.rm = TRUE) * 100 / mean(abs(log(y + 1) - log(y_pred_ref + 1)), na.rm = TRUE)
+        dist_pred <- mean(abs(log(y) - log(y_pred)), na.rm = TRUE) 
+        dist_ref_val <- mean(abs(log(y) - log(y_pred_ref)), na.rm = TRUE)
       }
     }
+    
+    cv_pred <- sd(abs(residuals_fit), na.rm = TRUE) * 100 / mean(abs(residuals_fit), na.rm = TRUE)
+    cv_ref <- sd(abs(y - y_pred_ref), na.rm = TRUE) * 100 / mean(abs(y - y_pred_ref), na.rm = TRUE)
     
     data.table(
       Slope = coef(fit)[2],
